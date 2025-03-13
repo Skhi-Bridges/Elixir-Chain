@@ -1,0 +1,11 @@
+C:\Users\skhib\Matrix-Magiq\ELXR\target\release\deps\liblibc-64cf05535b7af48c.rmeta: C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src/lib.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\macros.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\primitives.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\windows\mod.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\windows\msvc\mod.rs
+
+C:\Users\skhib\Matrix-Magiq\ELXR\target\release\deps\liblibc-64cf05535b7af48c.rlib: C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src/lib.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\macros.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\primitives.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\windows\mod.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\windows\msvc\mod.rs
+
+C:\Users\skhib\Matrix-Magiq\ELXR\target\release\deps\libc-64cf05535b7af48c.d: C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src/lib.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\macros.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\primitives.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\windows\mod.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\windows\msvc\mod.rs
+
+C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src/lib.rs:
+C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\macros.rs:
+C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\primitives.rs:
+C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\windows\mod.rs:
+C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\libc-0.2.171\src\windows\msvc\mod.rs:

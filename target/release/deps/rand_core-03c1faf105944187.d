@@ -1,0 +1,12 @@
+C:\Users\skhib\Matrix-Magiq\ELXR\target\release\deps\librand_core-03c1faf105944187.rmeta: C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\lib.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\error.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\block.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\impls.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\le.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\os.rs
+
+C:\Users\skhib\Matrix-Magiq\ELXR\target\release\deps\librand_core-03c1faf105944187.rlib: C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\lib.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\error.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\block.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\impls.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\le.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\os.rs
+
+C:\Users\skhib\Matrix-Magiq\ELXR\target\release\deps\rand_core-03c1faf105944187.d: C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\lib.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\error.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\block.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\impls.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\le.rs C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\os.rs
+
+C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\lib.rs:
+C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\error.rs:
+C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\block.rs:
+C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\impls.rs:
+C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\le.rs:
+C:\Users\skhib\.cargo\registry\src\index.crates.io-6f17d22bba15001f\rand_core-0.5.1\src\os.rs:

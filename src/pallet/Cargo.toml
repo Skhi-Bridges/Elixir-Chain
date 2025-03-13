@@ -5,6 +5,10 @@ edition = "2021"
 authors = ["Elixir Chain Developers"]
 description = "Substrate pallet for Elixir Chain's kombucha production verification"
 
+[lib]
+name = "elixir_pallet"
+path = "src/lib.rs"
+
 [dependencies]
 # Substrate dependencies
 frame-support = { version = "4.0.0-dev", default-features = false }

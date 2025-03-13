@@ -1,238 +1,314 @@
-// ELXR Kombucha Telemetry System
-// Target: Arduino Nano with sensors for kombucha monitoring
-// Integration with Polkadot parachain (Rococo testnet)
-// Copyright © 2025 ELXR Chain
+//! Telemetry module for Elixir Chain (ELXR)
+//! Implements a quantum-resistant sensor system for kombucha fermentation tracking
 
-#![no_std]
-#![no_main]
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::collections::HashMap;
 
-use arduino_hal::prelude::*;
-use arduino_hal::{adc, delay_ms};
-use embedded_hal::digital::v2::OutputPin;
-use heapless::String;
-use heapless::Vec;
-use nb::block;
-use panic_halt as _;
+// Import CRYSTALS-Dilithium for post-quantum cryptographic signatures
+#[cfg(feature = "dilithium")]
+use pqcrypto_dilithium::*;
 
-// Kyber-Dilithium quantum-resistant authentication
-mod kyber_dilithium {
-    use heapless::Vec;
-    
-    // Simplified Kyber key exchange and Dilithium signature for demonstration
-    // In production, use official implementations from NIST PQC standardization
-    
-    pub struct KyberKeys {
-        public_key: Vec<u8, 32>,
-        private_key: Vec<u8, 32>,
-    }
-    
-    pub struct DilithiumSignature {
-        signature: Vec<u8, 64>,
-    }
-    
-    pub fn generate_keys() -> KyberKeys {
-        let mut public_key = Vec::new();
-        let mut private_key = Vec::new();
-        
-        // Simplified key generation
-        for i in 0..32 {
-            public_key.push(i as u8).unwrap();
-            private_key.push((i + 128) as u8).unwrap();
-        }
-        
-        KyberKeys {
-            public_key,
-            private_key,
-        }
-    }
-    
-    pub fn sign_data(data: &[u8], keys: &KyberKeys) -> DilithiumSignature {
-        let mut signature = Vec::new();
-        
-        // Simplified signature generation
-        for i in 0..64 {
-            let sig_byte = if i < data.len() {
-                data[i] ^ keys.private_key[i % 32]
-            } else {
-                keys.private_key[i % 32]
-            };
-            signature.push(sig_byte).unwrap();
-        }
-        
-        DilithiumSignature {
-            signature,
-        }
-    }
+/// Represents an individual sensor used in kombucha fermentation
+#[derive(Debug, Clone)]
+pub struct SensorDevice {
+    /// Unique device identifier
+    pub id: String,
+    /// Type of sensor (pH, temperature, etc.)
+    pub sensor_type: SensorType,
+    /// Last calibration timestamp
+    pub last_calibration: u64,
+    /// Current status
+    pub status: DeviceStatus,
+    /// Public key for verification
+    pub public_key: Vec<u8>,
 }
 
-// Sensor configurations
-const PH_SENSOR_PIN: u8 = 0;      // A0
-const TEMP_SENSOR_PIN: u8 = 1;    // A1
-const LIGHT_SENSOR_PIN: u8 = 2;   // A2
-const DENSITY_SENSOR_PIN: u8 = 3; // A3
-const CO2_SENSOR_PIN: u8 = 4;     // A4
-const FERMENTATION_SENSOR_PIN: u8 = 5; // A5
+/// Types of sensors used in kombucha fermentation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SensorType {
+    /// pH level sensor
+    PH,
+    /// Temperature sensor
+    Temperature,
+    /// Sugar content sensor
+    Sugar,
+    /// Alcohol content sensor
+    Alcohol,
+    /// SCOBY health sensor
+    SCOBYHealth,
+    /// Acidity sensor
+    Acidity,
+    /// Pressure sensor (for bottled kombucha)
+    Pressure,
+}
 
-// Optimal ranges for kombucha
-const OPTIMAL_PH_MIN: f32 = 3.0;
-const OPTIMAL_PH_MAX: f32 = 3.5;
-const OPTIMAL_TEMP_MIN: f32 = 20.0;  // °C
-const OPTIMAL_TEMP_MAX: f32 = 24.0;  // °C
-const OPTIMAL_LIGHT_MIN: f32 = 200.0; // lux
-const OPTIMAL_LIGHT_MAX: f32 = 500.0; // lux
-const OPTIMAL_DENSITY_MIN: f32 = 1.015; // specific gravity
-const OPTIMAL_DENSITY_MAX: f32 = 1.025; // specific gravity
-const OPTIMAL_CO2_MIN: f32 = 400.0; // ppm
-const OPTIMAL_CO2_MAX: f32 = 1500.0; // ppm
-const OPTIMAL_FERMENTATION_MIN: f32 = 0.5; // arbitrary units
-const OPTIMAL_FERMENTATION_MAX: f32 = 0.8; // arbitrary units
+/// Status of a sensor device
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceStatus {
+    /// Device is active and reading correctly
+    Active,
+    /// Device needs calibration
+    NeedsCalibration,
+    /// Device has a malfunction
+    Malfunction,
+    /// Device is offline
+    Offline,
+}
 
-// Battery monitoring
-const BATTERY_LEVEL_PIN: u8 = 6;  // A6
+/// Represents a telemetry reading from a sensor
+#[derive(Debug, Clone)]
+pub struct TelemetryReading {
+    /// Sensor ID that produced the reading
+    pub sensor_id: String,
+    /// Timestamp of the reading
+    pub timestamp: u64,
+    /// Value as measured by the sensor
+    pub value: f64,
+    /// Units for the value (pH, Celsius, g/L, etc.)
+    pub unit: String,
+    /// Signature of the reading data
+    pub signature: Vec<u8>,
+}
 
-// Rococo testnet endpoint (replace with actual endpoint)
-const ROCOCO_ENDPOINT: &str = "wss://rococo-rpc.polkadot.io";
+/// Status of the fermentation process
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FermentationStage {
+    /// Primary fermentation
+    Primary,
+    /// Secondary fermentation
+    Secondary,
+    /// Maturation/aging
+    Maturation,
+    /// Completed fermentation
+    Completed,
+}
 
-#[arduino_hal::entry]
-fn main() -> ! {
-    // Initialize Arduino peripherals
-    let dp = arduino_hal::Peripherals::take().unwrap();
-    let pins = arduino_hal::pins!(dp);
-    let mut adc = arduino_hal::Adc::new(dp.ADC, Default::default());
-    let mut serial = arduino_hal::default_serial!(dp, pins, 57600);
-    
-    // Status LED
-    let mut led = pins.d13.into_output();
-    
-    // Initialize quantum-resistant authentication
-    let keys = kyber_dilithium::generate_keys();
-    
-    // Main telemetry loop
-    loop {
-        // Blink LED to indicate active measurement
-        led.set_high();
-        arduino_hal::delay_ms(100);
-        led.set_low();
-        
-        // Read all sensors
-        let ph_raw = adc.read_blocking(&pins.a0);
-        let temp_raw = adc.read_blocking(&pins.a1);
-        let light_raw = adc.read_blocking(&pins.a2);
-        let density_raw = adc.read_blocking(&pins.a3);
-        let co2_raw = adc.read_blocking(&pins.a4);
-        let fermentation_raw = adc.read_blocking(&pins.a5);
-        let battery_raw = adc.read_blocking(&pins.a6);
-        
-        // Process readings into meaningful values
-        let ph_value = convert_ph(ph_raw);
-        let temp_value = convert_temperature(temp_raw);
-        let light_value = convert_light(light_raw);
-        let density_value = convert_density(density_raw);
-        let co2_value = convert_co2(co2_raw);
-        let fermentation_value = convert_fermentation(fermentation_raw);
-        let battery_percentage = convert_battery_level(battery_raw);
-        
-        // Generate telemetry JSON
-        let mut json_data: String<256> = String::new();
-        write!(json_data, r#"{{"device_id":"ELXR-KOMBUCHA-001","timestamp":{},"measurements":{{"ph":{},"temp":{},"light":{},"density":{},"co2":{},"fermentation":{}}},"battery":{}}}"#,
-            millis(),
-            ph_value,
-            temp_value,
-            light_value,
-            density_value,
-            co2_value,
-            fermentation_value,
-            battery_percentage
-        ).unwrap();
-        
-        // Sign data using quantum-resistant signature
-        let signature = kyber_dilithium::sign_data(json_data.as_bytes(), &keys);
-        
-        // Send data to serial (for debugging and transmission)
-        for byte in json_data.as_bytes() {
-            block!(serial.write(*byte)).unwrap();
-        }
-        block!(serial.write(b'\n')).unwrap();
-        
-        // Check battery level - if too low, enter power saving mode
-        if battery_percentage < 20.0 {
-            // Low battery handling
-            for _ in 0..5 {
-                led.set_high();
-                arduino_hal::delay_ms(100);
-                led.set_low();
-                arduino_hal::delay_ms(100);
-            }
-            
-            // Increase delay between measurements to conserve power
-            arduino_hal::delay_ms(60000); // 1 minute delay
-        } else {
-            // Normal operation - 5 minute intervals
-            arduino_hal::delay_ms(300000);
+/// Represents a fermentation batch telemetry session
+#[derive(Debug)]
+pub struct FermentationTelemetry {
+    /// ID of the fermentation batch
+    pub batch_id: String,
+    /// ID of the production facility
+    pub facility_id: String,
+    /// Start time of telemetry collection
+    pub start_time: u64,
+    /// End time of telemetry collection (or 0 if ongoing)
+    pub end_time: u64,
+    /// Current stage of fermentation
+    pub stage: FermentationStage,
+    /// Map of sensor IDs to their registered devices
+    pub sensors: HashMap<String, SensorDevice>,
+    /// Vector of telemetry readings
+    pub readings: Vec<TelemetryReading>,
+    /// Hash of the previous telemetry record (for chain of verification)
+    pub previous_hash: Vec<u8>,
+    /// Recipe ID used for this batch
+    pub recipe_id: String,
+}
+
+/// Manages the telemetry for Elixir fermentation facilities
+pub struct TelemetryManager {
+    /// Active telemetry sessions by batch ID
+    active_sessions: HashMap<String, FermentationTelemetry>,
+    /// Historical telemetry records
+    historical_records: Vec<FermentationTelemetry>,
+}
+
+impl TelemetryManager {
+    /// Create a new telemetry manager
+    pub fn new() -> Self {
+        TelemetryManager {
+            active_sessions: HashMap::new(),
+            historical_records: Vec::new(),
         }
     }
+
+    /// Start tracking telemetry for a new fermentation batch
+    pub fn start_telemetry_session(
+        &mut self, 
+        batch_id: String, 
+        facility_id: String, 
+        recipe_id: String
+    ) -> Result<(), &'static str> {
+        if self.active_sessions.contains_key(&batch_id) {
+            return Err("Telemetry session already exists for this batch");
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+
+        let session = FermentationTelemetry {
+            batch_id: batch_id.clone(),
+            facility_id,
+            start_time: now,
+            end_time: 0,
+            stage: FermentationStage::Primary,
+            sensors: HashMap::new(),
+            readings: Vec::new(),
+            previous_hash: Vec::new(),
+            recipe_id,
+        };
+
+        self.active_sessions.insert(batch_id, session);
+        Ok(())
+    }
+
+    /// Register a sensor device for a fermentation batch
+    pub fn register_sensor(
+        &mut self,
+        batch_id: &str,
+        sensor: SensorDevice,
+    ) -> Result<(), &'static str> {
+        let session = self.active_sessions.get_mut(batch_id)
+            .ok_or("No active telemetry session found for this batch")?;
+
+        if session.sensors.contains_key(&sensor.id) {
+            return Err("Sensor with this ID already registered");
+        }
+
+        session.sensors.insert(sensor.id.clone(), sensor);
+        Ok(())
+    }
+
+    /// Add a telemetry reading to a fermentation batch
+    pub fn add_reading(
+        &mut self,
+        batch_id: &str,
+        reading: TelemetryReading,
+    ) -> Result<(), &'static str> {
+        let session = self.active_sessions.get_mut(batch_id)
+            .ok_or("No active telemetry session found for this batch")?;
+
+        // Check if the sensor is registered
+        if !session.sensors.contains_key(&reading.sensor_id) {
+            return Err("Sensor not registered for this batch");
+        }
+
+        // Here would be validation of the quantum-resistant signature
+        // This is a simplified placeholder
+        #[cfg(feature = "dilithium")]
+        self.verify_reading_signature(&reading)?;
+
+        session.readings.push(reading);
+        Ok(())
+    }
+
+    /// Update the fermentation stage
+    pub fn update_fermentation_stage(
+        &mut self,
+        batch_id: &str,
+        stage: FermentationStage,
+    ) -> Result<(), &'static str> {
+        let session = self.active_sessions.get_mut(batch_id)
+            .ok_or("No active telemetry session found for this batch")?;
+
+        session.stage = stage;
+        
+        // If fermentation is completed, end the telemetry session
+        if stage == FermentationStage::Completed {
+            self.end_telemetry_session(batch_id)?;
+        }
+        
+        Ok(())
+    }
+
+    /// End a telemetry session for a fermentation batch
+    pub fn end_telemetry_session(&mut self, batch_id: &str) -> Result<(), &'static str> {
+        let mut session = self.active_sessions.remove(batch_id)
+            .ok_or("No active telemetry session found for this batch")?;
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+
+        session.end_time = now;
+        self.historical_records.push(session);
+        Ok(())
+    }
+
+    /// Get the telemetry data for a fermentation batch
+    pub fn get_telemetry_data(&self, batch_id: &str) -> Option<&FermentationTelemetry> {
+        self.active_sessions.get(batch_id).or_else(|| {
+            self.historical_records
+                .iter()
+                .find(|record| record.batch_id == batch_id)
+        })
+    }
+
+    /// Verify a reading's signature using CRYSTALS-Dilithium
+    #[cfg(feature = "dilithium")]
+    fn verify_reading_signature(&self, reading: &TelemetryReading) -> Result<(), &'static str> {
+        // In a real implementation, this would use CRYSTALS-Dilithium to validate the signature
+        // against the sensor's public key
+        // For now we just return Ok
+        Ok(())
+    }
+
+    /// Export telemetry data to the blockchain
+    pub fn export_to_blockchain(&self, batch_id: &str) -> Result<Vec<u8>, &'static str> {
+        let telemetry = self.get_telemetry_data(batch_id)
+            .ok_or("No telemetry data found for this batch")?;
+
+        // In a real implementation, this would serialize and prepare data for
+        // submission to the blockchain
+        // For now we just return empty vector
+        Ok(Vec::new())
+    }
 }
 
-// Utility functions for sensor conversions
+/// Utility functions for fermentation telemetry data processing
+pub mod utils {
+    use super::*;
 
-fn convert_ph(raw_value: u16) -> f32 {
-    // Convert ADC reading to pH (0-14 scale)
-    // Assuming pH sensor provides 0V at pH 0 and 5V at pH 14
-    let voltage = (raw_value as f32) * 5.0 / 1023.0;
-    let ph = voltage * 2.8; // Scaling factor
-    ph
-}
+    /// Calculate the average sensor readings over a specific time range
+    pub fn calculate_average(readings: &[TelemetryReading], sensor_type: &str, start_time: u64, end_time: u64) -> Option<f64> {
+        let filtered_readings: Vec<&TelemetryReading> = readings
+            .iter()
+            .filter(|r| r.sensor_id.contains(sensor_type) && r.timestamp >= start_time && r.timestamp <= end_time)
+            .collect();
 
-fn convert_temperature(raw_value: u16) -> f32 {
-    // Convert ADC reading to temperature in Celsius
-    // Assuming LM35 temperature sensor (10mV per degree)
-    let voltage = (raw_value as f32) * 5.0 / 1023.0;
-    let temp_c = voltage * 100.0;
-    temp_c
-}
+        if filtered_readings.is_empty() {
+            return None;
+        }
 
-fn convert_light(raw_value: u16) -> f32 {
-    // Convert ADC reading to light level in lux
-    // Assuming photoresistor with voltage divider
-    let voltage = (raw_value as f32) * 5.0 / 1023.0;
-    let lux = voltage * 1000.0 / 5.0; // Simplified conversion
-    lux
-}
+        let sum: f64 = filtered_readings.iter().map(|r| r.value).sum();
+        Some(sum / filtered_readings.len() as f64)
+    }
 
-fn convert_density(raw_value: u16) -> f32 {
-    // Convert ADC reading to specific gravity
-    // Assuming hydrometer-like sensor
-    let voltage = (raw_value as f32) * 5.0 / 1023.0;
-    let specific_gravity = 1.0 + (voltage * 0.05); // Range: 1.000 to 1.050
-    specific_gravity
-}
+    /// Check if telemetry readings indicate optimal fermentation conditions
+    pub fn check_optimal_conditions(readings: &[TelemetryReading]) -> bool {
+        // This is a simplified placeholder for a real implementation
+        // that would check pH, temperature, and other parameters
+        // against optimal ranges for kombucha fermentation
+        true
+    }
 
-fn convert_co2(raw_value: u16) -> f32 {
-    // Convert ADC reading to CO2 level in ppm
-    // Assuming MQ-135 sensor
-    let voltage = (raw_value as f32) * 5.0 / 1023.0;
-    let co2_ppm = 400.0 + (voltage * 400.0); // Range: 400 to 2400 ppm
-    co2_ppm
-}
+    /// Generate a quality score based on recent telemetry readings
+    pub fn generate_quality_score(readings: &[TelemetryReading]) -> u8 {
+        // This is a simplified placeholder for a real implementation
+        // that would analyze the telemetry data to estimate the quality
+        // of the kombucha being produced
+        85
+    }
 
-fn convert_fermentation(raw_value: u16) -> f32 {
-    // Convert ADC reading to fermentation activity
-    // Custom sensor measuring gas production rate
-    let voltage = (raw_value as f32) * 5.0 / 1023.0;
-    let fermentation = voltage / 5.0; // Normalized 0 to 1
-    fermentation
-}
+    /// Determine if fermentation is ready to move to the next stage
+    pub fn check_stage_progression(
+        stage: &FermentationStage, 
+        readings: &[TelemetryReading]
+    ) -> bool {
+        // This is a simplified placeholder for a real implementation
+        // that would analyze telemetry data to determine if fermentation
+        // can move to the next stage
+        false
+    }
 
-fn convert_battery_level(raw_value: u16) -> f32 {
-    // Convert ADC reading to battery percentage
-    // Assuming lithium battery 3.7V nominal (3.2V min, 4.2V max)
-    let voltage = (raw_value as f32) * 5.0 / 1023.0;
-    let percentage = (voltage - 3.2) * 100.0 / (4.2 - 3.2);
-    percentage.clamp(0.0, 100.0)
-}
-
-fn millis() -> u32 {
-    // Simplified millisecond counter
-    // In real implementation, use a proper timer
-    0 // Placeholder
+    /// Detect potential issues in the fermentation process
+    pub fn detect_fermentation_issues(readings: &[TelemetryReading]) -> Vec<String> {
+        // This is a simplified placeholder for a real implementation
+        // that would analyze telemetry data to identify potential issues
+        Vec::new()
+    }
 }

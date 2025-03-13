@@ -1,0 +1,39 @@
+[package]
+name = "elixir-pallet"
+version = "0.1.0"
+edition = "2021"
+authors = ["Elixir Chain Developers"]
+description = "Substrate pallet for Elixir Chain's kombucha production verification"
+
+[dependencies]
+# Substrate dependencies
+frame-support = { version = "4.0.0-dev", default-features = false }
+frame-system = { version = "4.0.0-dev", default-features = false }
+sp-runtime = { version = "6.0.0", default-features = false }
+sp-io = { version = "6.0.0", default-features = false }
+sp-std = { version = "4.0.0", default-features = false }
+sp-core = { version = "6.0.0", default-features = false }
+codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
+scale-info = { version = "2.1.2", default-features = false, features = ["derive"] }
+
+# Internal dependencies
+elixir-telemetry = { path = "../../telemetry", default-features = false }
+
+[dev-dependencies]
+sp-core = { version = "6.0.0" }
+sp-io = { version = "6.0.0" }
+sp-runtime = { version = "6.0.0" }
+
+[features]
+default = ["std"]
+std = [
+    "frame-support/std",
+    "frame-system/std",
+    "sp-runtime/std",
+    "sp-io/std",
+    "sp-std/std",
+    "sp-core/std",
+    "codec/std",
+    "scale-info/std",
+    "elixir-telemetry/std",
+]

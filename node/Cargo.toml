@@ -1,0 +1,55 @@
+[package]
+name = "elixir-node"
+version = "0.1.0"
+edition = "2021"
+authors = ["Elixir Chain Developers"]
+description = "Node implementation for the Elixir Chain"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+# CLI and service dependencies
+clap = { version = "3.1.6", features = ["derive"] }
+futures = "0.3.21"
+jsonrpc-core = "18.0.0"
+log = "0.4.16"
+parking_lot = "0.12.0"
+tokio = { version = "1.17.0", features = ["full"] }
+
+# Substrate dependencies
+sc-basic-authorship = { version = "0.10.0-dev" }
+sc-cli = { version = "0.10.0-dev", features = ["wasmtime"] }
+sc-client-api = { version = "4.0.0-dev" }
+sc-consensus = { version = "0.10.0-dev" }
+sc-consensus-aura = { version = "0.10.0-dev" }
+sc-executor = { version = "0.10.0-dev", features = ["wasmtime"] }
+sc-finality-grandpa = { version = "0.10.0-dev" }
+sc-keystore = { version = "4.0.0-dev" }
+sc-rpc = { version = "4.0.0-dev" }
+sc-rpc-api = { version = "0.10.0-dev" }
+sc-service = { version = "0.10.0-dev", features = ["wasmtime"] }
+sc-telemetry = { version = "4.0.0-dev" }
+sc-transaction-pool = { version = "4.0.0-dev" }
+sc-transaction-pool-api = { version = "4.0.0-dev" }
+sp-api = { version = "4.0.0-dev" }
+sp-block-builder = { version = "4.0.0-dev" }
+sp-blockchain = { version = "4.0.0-dev" }
+sp-consensus = { version = "0.10.0-dev" }
+sp-consensus-aura = { version = "0.10.0-dev" }
+sp-core = { version = "6.0.0" }
+sp-finality-grandpa = { version = "4.0.0-dev" }
+sp-inherents = { version = "4.0.0-dev" }
+sp-runtime = { version = "6.0.0" }
+sp-timestamp = { version = "4.0.0-dev" }
+substrate-frame-rpc-system = { version = "4.0.0-dev" }
+
+# These dependencies are used for RPC
+jsonrpc-core-client = "18.0.0"
+pallet-transaction-payment-rpc = { version = "4.0.0-dev" }
+
+# Internal dependencies
+elixir-runtime = { path = "../runtime" }
+
+[build-dependencies]
+substrate-build-script-utils = { version = "3.0.0" }

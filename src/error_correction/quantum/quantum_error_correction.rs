@@ -16,24 +16,15 @@ impl SurfaceCodeQEC {
     
     pub fn encode(&self, logical_state: &[bool]) -> Vec<Vec<bool>> {
         // Implementation would encode logical qubits into surface code
-        // This is a placeholder
         vec![logical_state.to_vec()]
     }
     
     pub fn syndrome_measurement(&self, encoded_state: &[Vec<bool>]) -> Vec<bool> {
         // Implementation would perform syndrome measurement
-        // This is a placeholder
         vec![false; self.code_distance * 2]
     }
     
     pub fn correct_errors(&self, encoded_state: &mut [Vec<bool>], syndrome: &[bool]) {
         // Implementation would apply corrections based on syndrome
-        // This is a placeholder
-    }
-    
-    pub fn decode(&self, encoded_state: &[Vec<bool>]) -> Vec<bool> {
-        // Implementation would decode surface code back to logical qubits
-        // This is a placeholder
-        encoded_state[0].clone()
     }
 }

@@ -16,19 +16,11 @@ impl BridgeErrorCorrection {
     
     pub fn encode_for_quantum_transmission(&self, data: &[u8]) -> Vec<u8> {
         // Implementation would add redundancy for quantum transmission
-        // This is a placeholder
         data.to_vec()
     }
     
     pub fn decode_from_quantum_transmission(&self, data: &[u8]) -> Result<Vec<u8>, String> {
         // Implementation would verify and correct transmission errors
-        // This is a placeholder
         Ok(data.to_vec())
-    }
-    
-    pub fn verify_transmission(&self, original: &[u8], received: &[u8]) -> bool {
-        // Implementation would verify if transmission was successful
-        // This is a placeholder
-        original == received
     }
 }

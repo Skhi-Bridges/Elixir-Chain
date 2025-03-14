@@ -1,0 +1,27 @@
+# Rust specific
+**/target/
+**/*.rs.bk
+**/*.o
+**/*.so
+**/*.dylib
+**/*.dll
+**/*.a
+**/*.rlib
+Cargo.lock
+
+# Build artifacts
+target/
+artifacts/
+**/target/
+
+# Environment files
+.env
+.env.*
+**/.env
+
+# Editor files
+**/.vscode/
+**/.idea/
+**/.DS_Store
+**/*.swp
+**/*.swo

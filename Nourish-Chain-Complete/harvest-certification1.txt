@@ -1,0 +1,694 @@
+    impl HarvestCertification {
+        /// Creates a new certification contract with the caller as owner
+        #[ink(constructor)]
+        pub fn new(registry_address: AccountId) -> Self {
+            // Default quality parameters
+            let quality_parameters = QualityParameters {
+                min_protein: 6000,      // 60.00%
+                min_phycocyanin: 1500,  // 15.00 mg/kg
+                max_moisture: 700,      // 7.00%
+                max_contaminants: 50,   // 0.50 ppb
+            };
+
+            Self {
+                owner: Self::env().caller(),
+                registry_address,
+                certificates: StorageHashMap::new(),
+                telemetry_verifications: StorageHashMap::new(),
+                certifiers: StorageHashMap::new(),
+                authorized_labs: StorageHashMap::new(),
+                facility_batches: StorageHashMap::new(),
+                quality_parameters,
+                certificates_count: 0,
+                total_harvested_weight: 0,
+            }
+        }
+
+        /// Registers a new harvest batch
+        #[ink(message)]
+        pub fn register_harvest(
+            &mut self,
+            batch_id: String,
+            facility_id: String,
+            harvested_at: Timestamp,
+            weight: u64,
+            density: u32,
+            notes: String,
+        ) -> Result<()> {
+            let caller = self.env().caller();
+
+            // Check if batch ID already exists
+            if self.certificates.contains_key(&batch_id) {
+                return Err(Error::BatchAlreadyExists);
+            }
+
+            // Verify facility exists in registry (simplified - would call registry contract)
+            // For a real implementation, this would use cross-contract calls
+            if facility_id.is_empty() {
+                return Err(Error::FacilityNotFound);
+            }
+
+            // Create default nutritional profile (will be updated after testing)
+            let nutrition = NutritionalProfile {
+                protein: 0,
+                beta_carotene: 0,
+                chlorophyll: 0,
+                phycocyanin: 0,
+                iron: 0,
+                calcium: 0,
+                vitamin_b12: 0,
+            };
+
+            // Create pending certificate
+            let certificate = HarvestCertificate {
+                batch_id: batch_id.clone(),
+                facility_id: facility_id.clone(),
+                harvested_at,
+                certified_at: 0, // Not certified yet
+                weight,
+                density,
+                quality_score: 0, // Not scored yet
+                nutrition,
+                certified_by: AccountId::default(), // Not certified yet
+                status: CertificationStatus::Pending,
+                lab_info: None, // No lab testing yet
+                notes,
+            };
+
+            // Add certificate to storage
+            self.certificates.insert(batch_id.clone(), certificate);
+            
+            // Add to facility's batches
+            let mut facility_batches = self.facility_batches.get(&facility_id).unwrap_or(&Vec::new()).clone();
+            facility_batches.push(batch_id.clone());
+            self.facility_batches.insert(facility_id.clone(), facility_batches);
+
+            // Update statistics
+            self.certificates_count += 1;
+            self.total_harvested_weight += weight;
+
+            // Emit event
+            self.env().emit_event(HarvestRegistered {
+                batch_id,
+                facility_id,
+                weight,
+            });
+
+            Ok(())
+        }
+
+        /// Verifies telemetry data for a batch
+        #[ink(message)]
+        pub fn verify_telemetry(
+            &mut self,
+            batch_id: String,
+            device_id: String,
+            avg_ph: u32,
+            avg_temperature: u32,
+            avg_light: u32,
+            final_density: u32,
+        ) -> Result<()> {
+            let caller = self.env().caller();
+
+            // Only certifiers can verify telemetry
+            if !self.is_certifier(caller) {
+                return Err(Error::Unauthorized);
+            }
+
+            // Check if batch exists
+            if !self.certificates.contains_key(&batch_id) {
+                return Err(Error::BatchNotFound);
+            }
+
+            // Verify device is authorized for the facility (simplified)
+            // In a real implementation, this would call the registry contract
+            
+            // Create telemetry verification
+            let verification = TelemetryVerification {
+                batch_id: batch_id.clone(),
+                device_id: device_id.clone(),
+                avg_ph,
+                avg_temperature,
+                avg_light,
+                final_density,
+                verified_at: self.env().block_timestamp(),
+            };
+
+            // Store verification
+            self.telemetry_verifications.insert(batch_id.clone(), verification);
+
+            // Emit event
+            self.env().emit_event(TelemetryVerified {
+                batch_id,
+                device_id,
+            });
+
+            Ok(())
+        }
+
+        /// Updates nutritional profile after lab testing
+        #[ink(message)]
+        pub fn update_nutrition(
+            &mut self,
+            batch_id: String,
+            lab_name: String,
+            lab_cert_id: String,
+            report_id: String,
+            protein: u16,
+            beta_carotene: u16,
+            chlorophyll: u16,
+            phycocyanin: u16,
+            iron: u16,
+            calcium: u16,
+            vitamin_b12: u16,
+        ) -> Result<()> {
+            let caller = self.env().caller();
+
+            // Only certifiers can update nutrition
+            if !self.is_certifier(caller) {
+                return Err(Error::Unauthorized);
+            }
+
+            // Check if batch exists
+            let mut certificate = match self.certificates.get(&batch_id) {
+                Some(cert) => cert.clone(),
+                None => return Err(Error::BatchNotFound),
+            };
+
+            // Verify lab is authorized
+            if !self.is_lab_authorized(&lab_name) {
+                return Err(Error::LabNotAuthorized);
+            }
+
+            // Update nutritional profile
+            certificate.nutrition = NutritionalProfile {
+                protein,
+                beta_carotene,
+                chlorophyll,
+                phycocyanin,
+                iron,
+                calcium,
+                vitamin_b12,
+            };
+
+            // Update lab information
+            certificate.lab_info = Some(LabInfo {
+                name: lab_name,
+                cert_id: lab_cert_id,
+                report_id,
+                tested_at: self.env().block_timestamp(),
+            });
+
+            // Update certificate
+            self.certificates.insert(batch_id, certificate);
+
+            Ok(())
+        }
+
+        /// Certifies a harvest batch
+        #[ink(message)]
+        pub fn certify_harvest(
+            &mut self,
+            batch_id: String,
+            quality_score: u8,
+        ) -> Result<()> {
+            let caller = self.env().caller();
+
+            // Only certifiers can certify harvests
+            if !self.is_certifier(caller) {
+                return Err(Error::Unauthorized);
+            }
+
+            // Check if batch exists
+            let mut certificate = match self.certificates.get(&batch_id) {
+                Some(cert) => cert.clone(),
+                None => return Err(Error::BatchNotFound),
+            };
+
+            // Ensure telemetry verification exists
+            if !self.telemetry_verifications.contains_key(&batch_id) {
+                return Err(Error::TelemetryVerificationRequired);
+            }
+
+            // Ensure nutritional testing has been done
+            if certificate.nutrition.protein == 0 {
+                return Err(Error::QualityStandardsNotMet);
+            }
+
+            // Check if quality standards are met
+            if certificate.nutrition.protein < self.quality_parameters.min_protein
+                || certificate.nutrition.phycocyanin < self.quality_parameters.min_phycocyanin
+                || quality_score < 60 // Minimum acceptable score
+            {
+                // Update status to rejected
+                certificate.status = CertificationStatus::Rejected;
+                self.certificates.insert(batch_id.clone(), certificate.clone());
+                
+                // Emit status change event
+                self.env().emit_event(CertificationStatusChanged {
+                    batch_id,
+                    new_status: CertificationStatus::Rejected,
+                });
+                
+                return Err(Error::QualityStandardsNotMet);
+            }
+
+            // Update certificate
+            certificate.status = CertificationStatus::Certified;
+            certificate.certified_at = self.env().block_timestamp();
+            certificate.certified_by = caller;
+            certificate.quality_score = quality_score;
+            
+            // Save updated certificate
+            self.certificates.insert(batch_id.clone(), certificate);
+
+            // Emit certification event
+            self.env().emit_event(HarvestCertified {
+                batch_id: batch_id.clone(),
+                quality_score,
+                certified_by: caller,
+            });
+
+            // Emit status change event
+            self.env().emit_event(CertificationStatusChanged {
+                batch_id,
+                new_status: CertificationStatus::Certified,
+            });
+
+            Ok(())
+        }
+
+        /// Revokes certification for a batch
+        #[ink(message)]
+        pub fn revoke_certification(
+            &mut self,
+            batch_id: String,
+            reason: String,
+        ) -> Result<()> {
+            let caller = self.env().caller();
+
+            // Only owner or certifiers can revoke certifications
+            if caller != self.owner && !self.is_certifier(caller) {
+                return Err(Error::Unauthorized);
+            }
+
+            // Check if batch exists
+            let mut certificate = match self.certificates.get(&batch_id) {
+                Some(cert) => cert.clone(),
+                None => return Err(Error::BatchNotFound),
+            };
+
+            // Can only revoke certified batches
+            if certificate.status != CertificationStatus::Certified {
+                return Err(Error::InvalidParameters);
+            }
+
+            // Update certificate status
+            certificate.status = CertificationStatus::Revoked;
+            certificate.notes = format!("{}; Revoked: {}", certificate.notes, reason);
+            
+            // Save updated certificate
+            self.certificates.insert(batch_id.clone(), certificate);
+
+            // Emit status change event
+            self.env().emit_event(CertificationStatusChanged {
+                batch_id,
+                new_status: CertificationStatus::Revoked,
+            });
+
+            Ok(())
+        }
+
+        /// Adds a certifier
+        #[ink(message)]
+        pub fn add_certifier(
+            &mut self,
+            certifier: AccountId,
+        ) -> Result<()> {
+            // Only owner can add certifiers
+            if self.env().caller() != self.owner {
+                return Err(Error::Unauthorized);
+            }
+
+            // Add certifier
+            self.certifiers.insert(certifier, true);
+
+            Ok(())
+        }
+
+        /// Removes a certifier
+        #[ink(message)]
+        pub fn remove_certifier(
+            &mut self,
+            certifier: AccountId,
+        ) -> Result<()> {
+            // Only owner can remove certifiers
+            if self.env().caller() != self.owner {
+                return Err(Error::Unauthorized);
+            }
+
+            // Remove certifier
+            self.certifiers.insert(certifier, false);
+
+            Ok(())
+        }
+
+        /// Authorizes a testing lab
+        #[ink(message)]
+        pub fn authorize_lab(
+            &mut self,
+            lab_name: String,
+        ) -> Result<()> {
+            // Only owner can authorize labs
+            if self.env().caller() != self.owner {
+                return Err(Error::Unauthorized);
+            }
+
+            // Authorize lab
+            self.authorized_labs.insert(lab_name, true);
+
+            Ok(())
+        }
+
+        /// Removes authorization for a testing lab
+        #[ink(message)]
+        pub fn deauthorize_lab(
+            &mut self,
+            lab_name: String,
+        ) -> Result<()> {
+            // Only owner can deauthorize labs
+            if self.env().caller() != self.owner {
+                return Err(Error::Unauthorized);
+            }
+
+            // Deauthorize lab
+            self.authorized_labs.insert(lab_name, false);
+
+            Ok(())
+        }
+
+        /// Updates quality parameters
+        #[ink(message)]
+        pub fn update_quality_parameters(
+            &mut self,
+            parameters: QualityParameters,
+        ) -> Result<()> {
+            // Only owner can update quality parameters
+            if self.env().caller() != self.owner {
+                return Err(Error::Unauthorized);
+            }
+
+            // Update parameters
+            self.quality_parameters = parameters;
+
+            Ok(())
+        }
+
+        /// Checks if an account is an authorized certifier
+        #[ink(message)]
+        pub fn is_certifier(&self, account: AccountId) -> bool {
+            self.certifiers.get(&account).copied().unwrap_or(false)
+        }
+
+        /// Checks if a lab is authorized
+        #[ink(message)]
+        pub fn is_lab_authorized(&self, lab_name: &str) -> bool {
+            self.authorized_labs.get(lab_name).copied().unwrap_or(false)
+        }
+
+        /// Gets a certificate by batch ID
+        #[ink(message)]
+        pub fn get_certificate(&self, batch_id: String) -> Option<HarvestCertificate> {
+            self.certificates.get(&batch_id).cloned()
+        }
+
+        /// Gets telemetry verification for a batch
+        #[ink(message)]
+        pub fn get_telemetry_verification(&self, batch_id: String) -> Option<TelemetryVerification> {
+            self.telemetry_verifications.get(&batch_id).cloned()
+        }
+
+        /// Gets all batch IDs for a facility
+        #[ink(message)]
+        pub fn get_facility_batches(&self, facility_id: String) -> Vec<String> {
+            self.facility_batches.get(&facility_id).cloned().unwrap_or_default()
+        }
+
+        /// Gets the current quality parameters
+        #[ink(message)]
+        pub fn get_quality_parameters(&self) -> QualityParameters {
+            self.quality_parameters.clone()
+        }
+
+        /// Gets statistics about harvests
+        #[ink(message)]
+        pub fn get_statistics(&self) -> (u32, u64) {
+            (self.certificates_count, self.total_harvested_weight)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use ink_lang as ink;
+
+        #[ink::test]
+        fn certification_works() {
+            let registry_address = AccountId::from([0x1; 32]);
+            let mut certification = HarvestCertification::new(registry_address);
+            let accounts = ink_env::test::default_accounts::<ink_env::DefaultEnvironment>();
+            
+            // Add certifier
+            let result = certification.add_certifier(accounts.bob);
+            assert!(result.is_ok());
+            
+            // Register a harvest
+            let result = certification.register_harvest(
+                String::from("BATCH001"),
+                String::from("FAC001"),
+                1000, // timestamp
+                5000, // 5kg
+                2500, // 2.5 g/L
+                String::from("Test batch"),
+            );
+            assert!(result.is_ok());
+            
+            // Authorize a lab
+            let result = certification.authorize_lab(String::from("TestLab"));
+            assert!(result.is_ok());
+            
+            // Verify everything was recorded
+            let certificate = certification.get_certificate(String::from("BATCH001")).unwrap();
+            assert_eq!(certificate.weight, 5000);
+            assert_eq!(certificate.status, CertificationStatus::Pending);
+            
+            // Certificate count should be 1
+            let (count, weight) = certification.get_statistics();
+            assert_eq!(count, 1);
+            assert_eq!(weight, 5000);
+        }
+    }
+}    /// Errors that can occur in the certification
+    #[derive(Debug, Encode, Decode, PartialEq)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum Error {
+        /// Caller is not authorized
+        Unauthorized,
+        /// Batch ID already exists
+        BatchAlreadyExists,
+        /// Batch ID does not exist
+        BatchNotFound,
+        /// Facility ID does not exist
+        FacilityNotFound,
+        /// Invalid parameters
+        InvalidParameters,
+        /// Lab is not authorized
+        LabNotAuthorized,
+        /// Quality standards not met
+        QualityStandardsNotMet,
+        /// Telemetry verification required
+        TelemetryVerificationRequired,
+        /// Registry contract error
+        RegistryError,
+    }
+
+    /// Events emitted by the contract
+    #[ink(event)]
+    pub struct HarvestRegistered {
+        #[ink(topic)]
+        batch_id: String,
+        #[ink(topic)]
+        facility_id: String,
+        weight: u64,
+    }
+
+    #[ink(event)]
+    pub struct HarvestCertified {
+        #[ink(topic)]
+        batch_id: String,
+        quality_score: u8,
+        certified_by: AccountId,
+    }
+
+    #[ink(event)]
+    pub struct CertificationStatusChanged {
+        #[ink(topic)]
+        batch_id: String,
+        new_status: CertificationStatus,
+    }
+
+    #[ink(event)]
+    pub struct TelemetryVerified {
+        #[ink(topic)]
+        batch_id: String,
+        device_id: String,
+    }
+
+    pub type Result<T> = core::result::Result<T, Error>;#![cfg_attr(not(feature = "std"), no_std)]
+
+use ink_lang as ink;
+
+#[ink::contract]
+mod harvest_certification {
+    use ink_prelude::string::String;
+    use ink_prelude::vec::Vec;
+    use ink_storage::{
+        collections::HashMap as StorageHashMap,
+        traits::{PackedLayout, SpreadLayout},
+    };
+    use scale::{Decode, Encode};
+
+    /// Represents a certified spirulina harvest
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct HarvestCertificate {
+        /// Unique batch ID
+        batch_id: String,
+        /// Facility that produced the harvest
+        facility_id: String,
+        /// Timestamp when harvested
+        harvested_at: Timestamp,
+        /// Timestamp when certified
+        certified_at: Timestamp,
+        /// Weight of the harvest in grams
+        weight: u64,
+        /// Density at harvest time (g/L, scaled by 1000)
+        density: u32,
+        /// Quality score (0-100)
+        quality_score: u8,
+        /// Nutritional content
+        nutrition: NutritionalProfile,
+        /// Certification issuer
+        certified_by: AccountId,
+        /// Certification status
+        status: CertificationStatus,
+        /// Testing laboratory info (if applicable)
+        lab_info: Option<LabInfo>,
+        /// Any additional notes
+        notes: String,
+    }
+
+    /// Lab information for testing
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct LabInfo {
+        /// Lab name
+        name: String,
+        /// Lab certification ID
+        cert_id: String,
+        /// Test report ID
+        report_id: String,
+        /// Test timestamp
+        tested_at: Timestamp,
+    }
+
+    /// Nutritional profile of a spirulina harvest
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct NutritionalProfile {
+        /// Protein content percentage (scaled by 100)
+        protein: u16,
+        /// Beta-carotene content (mg/kg, scaled by 100)
+        beta_carotene: u16,
+        /// Chlorophyll content (mg/kg, scaled by 100)
+        chlorophyll: u16,
+        /// Phycocyanin content (mg/kg, scaled by 100)
+        phycocyanin: u16,
+        /// Iron content (mg/kg, scaled by 100)
+        iron: u16,
+        /// Calcium content (mg/kg, scaled by 100)
+        calcium: u16,
+        /// Vitamin B12 content (mcg/kg, scaled by 100)
+        vitamin_b12: u16,
+    }
+
+    /// Status of a certification
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout, PartialEq)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum CertificationStatus {
+        Pending,
+        Certified,
+        Rejected,
+        Revoked,
+    }
+
+    /// Parameters for monitoring harvest quality
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct QualityParameters {
+        /// Minimum protein content percentage (scaled by 100)
+        min_protein: u16,
+        /// Minimum phycocyanin content (mg/kg, scaled by 100)
+        min_phycocyanin: u16,
+        /// Maximum acceptable moisture percentage (scaled by 100)
+        max_moisture: u16,
+        /// Maximum acceptable contaminants (ppb, scaled by 100)
+        max_contaminants: u16,
+    }
+
+    /// Verification record for telemetry data
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct TelemetryVerification {
+        /// Batch ID
+        batch_id: String,
+        /// Device ID that recorded the data
+        device_id: String,
+        /// Average pH during cultivation (scaled by 100)
+        avg_ph: u32,
+        /// Average temperature during cultivation (scaled by 100)
+        avg_temperature: u32,
+        /// Average light during cultivation (scaled by 10)
+        avg_light: u32,
+        /// Final density before harvest (scaled by 1000)
+        final_density: u32,
+        /// Verification timestamp
+        verified_at: Timestamp,
+    }
+
+    /// Simple timestamp type (Unix timestamp)
+    pub type Timestamp = u64;
+
+    #[ink(storage)]
+    pub struct HarvestCertification {
+        /// Contract owner
+        owner: AccountId,
+        /// Registry contract address
+        registry_address: AccountId,
+        /// Map of certified harvests by batch ID
+        certificates: StorageHashMap<String, HarvestCertificate>,
+        /// Map of telemetry verifications by batch ID
+        telemetry_verifications: StorageHashMap<String, TelemetryVerification>,
+        /// Map of authorized certifiers
+        certifiers: StorageHashMap<AccountId, bool>,
+        /// Map of authorized testing labs
+        authorized_labs: StorageHashMap<String, bool>,
+        /// Map of facility IDs to their batches
+        facility_batches: StorageHashMap<String, Vec<String>>,
+        /// Quality parameters
+        quality_parameters: QualityParameters,
+        /// Total number of certified harvests
+        certificates_count: u32,
+        /// Total harvested weight (in grams)
+        total_harvested_weight: u64,
+    }

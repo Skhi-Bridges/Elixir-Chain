@@ -1,0 +1,452 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+use ink_lang as ink;
+use ink_storage::{
+    traits::SpreadAllocate,
+    Mapping,
+};
+use pqc_kyber::*;
+use pqc_dilithium::*;
+use scale::{Decode, Encode};
+
+#[ink::contract]
+mod warehouse_management {
+    #[ink(storage)]
+    #[derive(SpreadAllocate)]
+    pub struct WarehouseManagement {
+        // Inventory tracking
+        inventory: Mapping<(WarehouseId, ProductId), InventoryLevel>,
+        shipments: Mapping<ShipmentId, WarehouseShipment>,
+        reservations: Mapping<ReservationId, Reservation>,
+        
+        // Warehouse information
+        warehouses: Mapping<WarehouseId, Warehouse>,
+        warehouse_metrics: Mapping<WarehouseId, WarehouseMetrics>,
+        
+        // Fulfillment services
+        fulfillment_providers: Mapping<ProviderId, FulfillmentProvider>,
+        service_integrations: Mapping<WarehouseId, Vec<ServiceIntegration>>,
+        
+        // Analytics and optimization
+        inventory_predictions: Mapping<(WarehouseId, ProductId), PredictionData>,
+        optimization_rules: Mapping<WarehouseId, OptimizationRules>,
+    }
+
+    #[derive(Encode, Decode, Debug)]
+    pub struct InventoryLevel {
+        quantity: u32,
+        reserved: u32,
+        minimum_threshold: u32,
+        last_updated: Timestamp,
+        location_data: StorageLocation,
+    }
+
+    #[derive(Encode, Decode, Debug)]
+    pub struct WarehouseShipment {
+        shipment_type: ShipmentType,
+        products: Vec<ProductQuantity>,
+        status: ShipmentStatus,
+        scheduled_time: Timestamp,
+        provider: Option<ProviderId>,
+    }
+
+    #[derive(Encode, Decode, Debug)]
+    pub struct Warehouse {
+        location: Address,
+        capacity: StorageCapacity,
+        capabilities: Vec<WarehouseCapability>,
+        operating_hours: OperatingHours,
+        status: WarehouseStatus,
+    }
+
+    #[derive(Encode, Decode, Debug)]
+    pub struct WarehouseMetrics {
+        utilization: u8,
+        throughput: u32,
+        accuracy: u8,
+        efficiency: u8,
+        last_calculated: Timestamp,
+    }
+
+    #[derive(Encode, Decode, Debug)]
+    pub struct FulfillmentProvider {
+        name: Vec<u8>,
+        service_level: ServiceLevel,
+        integration_type: IntegrationType,
+        active: bool,
+        performance: ProviderMetrics,
+    }
+
+    #[derive(Encode, Decode, Debug)]
+    pub struct PredictionData {
+        demand_forecast: Vec<DemandPoint>,
+        confidence: u8,
+        last_updated: Timestamp,
+        model_version: u32,
+    }
+
+    impl WarehouseManagement {
+        #[ink(constructor)]
+        pub fn new() -> Self {
+            ink_lang::utils::initialize_contract(|contract: &mut Self| {
+                // Constructor implementation
+            })
+        }
+
+        #[ink(message)]
+        pub fn record_inventory_movement(
+            &mut self,
+            warehouse_id: WarehouseId,
+            product_id: ProductId,
+            movement: InventoryMovement,
+        ) -> Result<(), Error> {
+            // Get current inventory level
+            let mut inventory = self.inventory
+                .get((warehouse_id, product_id))
+                .ok_or(Error::ProductNotFound)?;
+            
+            // Verify warehouse exists and is active
+            let warehouse = self.warehouses.get(warehouse_id)
+                .ok_or(Error::WarehouseNotFound)?;
+                
+            if warehouse.status != WarehouseStatus::Active {
+                return Err(Error::WarehouseInactive);
+            }
+            
+            // Apply movement
+            match movement {
+                InventoryMovement::Inbound(quantity) => {
+                    inventory.quantity = inventory.quantity
+                        .checked_add(quantity)
+                        .ok_or(Error::ArithmeticError)?;
+                },
+                InventoryMovement::Outbound(quantity) => {
+                    if quantity > inventory.quantity - inventory.reserved {
+                        return Err(Error::InsufficientInventory);
+                    }
+                    inventory.quantity = inventory.quantity
+                        .checked_sub(quantity)
+                        .ok_or(Error::ArithmeticError)?;
+                },
+                InventoryMovement::Adjustment(quantity) => {
+                    inventory.quantity = quantity;
+                }
+            }
+            
+            // Update inventory
+            inventory.last_updated = self.env().block_timestamp();
+            self.inventory.insert((warehouse_id, product_id), &inventory);
+            
+            // Update metrics
+            self.update_warehouse_metrics(warehouse_id)?;
+            
+            // Update predictions
+            self.update_inventory_predictions(
+                warehouse_id,
+                product_id,
+                &movement
+            )?;
+
+            self.env().emit_event(InventoryUpdated {
+                warehouse_id,
+                product_id,
+                quantity: inventory.quantity,
+                movement_type: movement.into(),
+            });
+
+            Ok(())
+        }
+
+        #[ink(message)]
+        pub fn create_reservation(
+            &mut self,
+            warehouse_id: WarehouseId,
+            products: Vec<ProductQuantity>,
+            fulfillment_type: FulfillmentType,
+        ) -> Result<ReservationId, Error> {
+            // Verify warehouse
+            let warehouse = self.warehouses.get(warehouse_id)
+                .ok_or(Error::WarehouseNotFound)?;
+                
+            if warehouse.status != WarehouseStatus::Active {
+                return Err(Error::WarehouseInactive);
+            }
+            
+            // Check inventory availability
+            for product in products.iter() {
+                let inventory = self.inventory
+                    .get((warehouse_id, product.product_id))
+                    .ok_or(Error::ProductNotFound)?;
+                    
+                if inventory.quantity - inventory.reserved < product.quantity {
+                    return Err(Error::InsufficientInventory);
+                }
+            }
+            
+            // Create reservation
+            let reservation_id = self.generate_reservation_id();
+            let reservation = Reservation {
+                warehouse_id,
+                products,
+                fulfillment_type,
+                status: ReservationStatus::Active,
+                created_at: self.env().block_timestamp(),
+                expires_at: self.env().block_timestamp() + 86400000, // 24 hours
+            };
+            
+            // Update inventory reservations
+            for product in reservation.products.iter() {
+                let mut inventory = self.inventory
+                    .get((warehouse_id, product.product_id))
+                    .unwrap();
+                    
+                inventory.reserved += product.quantity;
+                self.inventory.insert(
+                    (warehouse_id, product.product_id),
+                    &inventory
+                );
+            }
+            
+            self.reservations.insert(reservation_id, &reservation);
+
+            self.env().emit_event(ReservationCreated {
+                reservation_id,
+                warehouse_id,
+                products: products.len() as u32,
+                expiry: reservation.expires_at,
+            });
+
+            Ok(reservation_id)
+        }
+
+        #[ink(message)]
+        pub fn process_fulfillment(
+            &mut self,
+            reservation_id: ReservationId,
+            provider_id: Option<ProviderId>,
+        ) -> Result<ShipmentId, Error> {
+            // Get reservation
+            let reservation = self.reservations.get(reservation_id)
+                .ok_or(Error::ReservationNotFound)?;
+                
+            if reservation.status != ReservationStatus::Active {
+                return Err(Error::InvalidReservation);
+            }
+            
+            // Create shipment
+            let shipment_id = self.generate_shipment_id();
+            let shipment = WarehouseShipment {
+                shipment_type: ShipmentType::Outbound,
+                products: reservation.products.clone(),
+                status: ShipmentStatus::Created,
+                scheduled_time: self.env().block_timestamp(),
+                provider: provider_id,
+            };
+            
+            // Update inventory
+            for product in reservation.products.iter() {
+                let mut inventory = self.inventory
+                    .get((reservation.warehouse_id, product.product_id))
+                    .unwrap();
+                    
+                inventory.quantity -= product.quantity;
+                inventory.reserved -= product.quantity;
+                
+                self.inventory.insert(
+                    (reservation.warehouse_id, product.product_id),
+                    &inventory
+                );
+            }
+            
+            // Close reservation
+            let mut reservation = reservation;
+            reservation.status = ReservationStatus::Fulfilled;
+            self.reservations.insert(reservation_id, &reservation);
+            
+            // Store shipment
+            self.shipments.insert(shipment_id, &shipment);
+            
+            // Update metrics and predictions
+            self.update_warehouse_metrics(reservation.warehouse_id)?;
+            self.update_fulfillment_predictions(
+                reservation.warehouse_id,
+                &shipment
+            )?;
+
+            self.env().emit_event(FulfillmentCreated {
+                shipment_id,
+                reservation_id,
+                provider: provider_id,
+            });
+
+            Ok(shipment_id)
+        }
+
+        #[ink(message)]
+        pub fn integrate_service(
+            &mut self,
+            warehouse_id: WarehouseId,
+            provider_id: ProviderId,
+            integration_config: ServiceIntegration,
+        ) -> Result<(), Error> {
+            // Verify warehouse and provider
+            let warehouse = self.warehouses.get(warehouse_id)
+                .ok_or(Error::WarehouseNotFound)?;
+            let provider = self.fulfillment_providers.get(provider_id)
+                .ok_or(Error::ProviderNotFound)?;
+                
+            if !provider.active {
+                return Err(Error::ProviderInactive);
+            }
+            
+            // Validate integration compatibility
+            self.validate_integration(
+                &warehouse,
+                &provider,
+                &integration_config
+            )?;
+            
+            // Store integration
+            let mut integrations = self.service_integrations
+                .get(warehouse_id)
+                .unwrap_or_default();
+                
+            integrations.push(integration_config.clone());
+            self.service_integrations.insert(warehouse_id, &integrations);
+
+            self.env().emit_event(ServiceIntegrated {
+                warehouse_id,
+                provider_id,
+                integration_type: integration_config.integration_type,
+            });
+
+            Ok(())
+        }
+
+        // Helper functions
+        fn generate_reservation_id(&self) -> ReservationId {
+            // Implementation using quantum-resistant hash
+            ReservationId::default() // Placeholder
+        }
+
+        fn generate_shipment_id(&self) -> ShipmentId {
+            // Implementation using quantum-resistant hash
+            ShipmentId::default() // Placeholder
+        }
+
+        fn update_warehouse_metrics(
+            &mut self,
+            warehouse_id: WarehouseId,
+        ) -> Result<(), Error> {
+            // Implementation for metrics update
+            Ok(()) // Placeholder
+        }
+
+        fn update_inventory_predictions(
+            &mut self,
+            warehouse_id: WarehouseId,
+            product_id: ProductId,
+            movement: &InventoryMovement,
+        ) -> Result<(), Error> {
+            // Implementation for prediction updates
+            Ok(()) // Placeholder
+        }
+
+        fn update_fulfillment_predictions(
+            &mut self,
+            warehouse_id: WarehouseId,
+            shipment: &WarehouseShipment,
+        ) -> Result<(), Error> {
+            // Implementation for prediction updates
+            Ok(()) // Placeholder
+        }
+
+        fn validate_integration(
+            &self,
+            warehouse: &Warehouse,
+            provider: &FulfillmentProvider,
+            config: &ServiceIntegration,
+        ) -> Result<(), Error> {
+            // Implementation for validation
+            Ok(()) // Placeholder
+        }
+    }
+
+    // Events
+    #[ink(event)]
+    pub struct InventoryUpdated {
+        #[ink(topic)]
+        warehouse_id: WarehouseId,
+        #[ink(topic)]
+        product_id: ProductId,
+        quantity: u32,
+        movement_type: MovementType,
+    }
+
+    #[ink(event)]
+    pub struct ReservationCreated {
+        #[ink(topic)]
+        reservation_id: ReservationId,
+        warehouse_id: WarehouseId,
+        products: u32,
+        expiry: Timestamp,
+    }
+
+    #[ink(event)]
+    pub struct FulfillmentCreated {
+        #[ink(topic)]
+        shipment_id: ShipmentId,
+        reservation_id: ReservationId,
+        provider: Option<ProviderId>,
+    }
+
+    #[ink(event)]
+    pub struct ServiceIntegrated {
+        #[ink(topic)]
+        warehouse_id: WarehouseId,
+        provider_id: ProviderId,
+        integration_type: IntegrationType,
+    }
+
+    // Types
+    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum WarehouseStatus {
+        Active,
+        Inactive,
+        Maintenance,
+        Closed,
+    }
+
+    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum MovementType {
+        Inbound,
+        Outbound,
+        Adjustment,
+    }
+
+    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum ReservationStatus {
+        Active,
+        Expired,
+        Fulfilled,
+        Cancelled,
+    }
+
+    // Error types
+    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum Error {
+        WarehouseNotFound,
+        WarehouseInactive,
+        ProductNotFound,
+        InsufficientInventory,
+        ReservationNotFound,
+        InvalidReservation,
+        ProviderNotFound,
+        ProviderInactive,
+        ArithmeticError,
+        InvalidIntegration,
+    }
+}

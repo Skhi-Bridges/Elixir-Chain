@@ -1,0 +1,564 @@
+// UI Visualization Component for NRSH and ELXR Telemetry
+// Uses React and Recharts for visualization of parachain telemetry data
+// For integration with parachain demo
+// Copyright © 2025 NRSH/ELXR
+
+// This component visualizes telemetry data from NRSH (Spirulina) and ELXR (Kombucha)
+// parachains, showing real-time sensor data with optimum ranges highlighted.
+// It connects directly to the Rococo testnet to fetch data from the respective pallets.
+
+import React, { useState, useEffect } from 'react';
+import { ApiPromise, WsProvider } from '@polkadot/api';
+import { web3FromSource } from '@polkadot/extension-dapp';
+import { 
+  LineChart, Line, AreaChart, Area, BarChart, Bar, 
+  PieChart, Pie, Cell, 
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
+  ResponsiveContainer, RadialBarChart, RadialBar
+} from 'recharts';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { 
+  ArrowUpCircle, ArrowDownCircle, AlertTriangle, 
+  Thermometer, Droplet, Sun, Flask, Gauge, Battery 
+} from 'lucide-react';
+
+// Main component for NRSH/ELXR telemetry visualization
+const TelemetryDashboard = () => {
+  // State for active tab (NRSH or ELXR)
+  const [activeProject, setActiveProject] = useState('nrsh');
+  
+  // State for connected status
+  const [connected, setConnected] = useState(false);
+  
+  // State for API connection
+  const [api, setApi] = useState(null);
+  
+  // State for telemetry data
+  const [nrshData, setNrshData] = useState({
+    latest: null,
+    history: [],
+    anomalies: [],
+    optimalRanges: null
+  });
+  
+  const [elxrData, setElxrData] = useState({
+    latest: null,
+    history: [],
+    anomalies: [],
+    optimalRanges: null
+  });
+  
+  // State for selected device
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  
+  // Connect to Rococo testnet
+  useEffect(() => {
+    const connectToParachain = async () => {
+      try {
+        // Initialize connection to Rococo testnet
+        const wsProvider = new WsProvider('wss://rococo-rpc.polkadot.io');
+        const api = await ApiPromise.create({ provider: wsProvider });
+        
+        setApi(api);
+        setConnected(true);
+        
+        // Fetch initial data
+        if (activeProject === 'nrsh') {
+          await fetchNrshData(api);
+        } else {
+          await fetchElxrData(api);
+        }
+        
+        // Subscribe to new blocks for real-time updates
+        const unsubscribe = await api.rpc.chain.subscribeNewHeads(async (header) => {
+          if (activeProject === 'nrsh') {
+            await fetchNrshData(api);
+          } else {
+            await fetchElxrData(api);
+          }
+        });
+        
+        // Cleanup subscription on component unmount
+        return () => {
+          unsubscribe();
+          api.disconnect();
+        };
+      } catch (error) {
+        console.error('Error connecting to parachain:', error);
+        setConnected(false);
+      }
+    };
+    
+    connectToParachain();
+  }, [activeProject]);
+  
+  // Fetch NRSH data from parachain
+  const fetchNrshData = async (api) => {
+    try {
+      // Fetch optimal ranges
+      const optimalRanges = await api.query.nrshTelemetry.optimalRanges();
+      
+      // Fetch latest telemetry entries (most recent 20)
+      const telemetryEntries = await api.query.nrshTelemetry.spirulinaTelemetry.entries();
+      const processedEntries = telemetryEntries
+        .map(([key, value]) => {
+          const telemetryId = key.args[0].toNumber();
+          const telemetryData = value.unwrap();
+          
+          return {
+            id: telemetryId,
+            deviceId: Buffer.from(telemetryData.deviceId).toString(),
+            timestamp: telemetryData.timestamp.toNumber(),
+            batchId: Buffer.from(telemetryData.batchId).toString(),
+            ph: telemetryData.ph.toNumber() / 100, // Scale back to decimal
+            temperature: telemetryData.temperature.toNumber() / 100,
+            light: telemetryData.light.toNumber() / 10,
+            density: telemetryData.density.toNumber() / 1000,
+            dissolvedOxygen: telemetryData.dissolvedOxygen.toNumber() / 100,
+            nitrate: telemetryData.nitrate.toNumber() / 10,
+            salinity: telemetryData.salinity.toNumber() / 10,
+            battery: telemetryData.battery.toNumber() / 10,
+            overallHealth: telemetryData.overallHealth.toNumber() / 10,
+            harvestReady: telemetryData.harvestReady,
+            reporter: telemetryData.reporter.toString()
+          };
+        })
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 20);
+      
+      // Get unique device IDs
+      const deviceIds = [...new Set(processedEntries.map(entry => entry.deviceId))];
+      
+      // If no selected device, set first one
+      if (!selectedDevice && deviceIds.length > 0) {
+        setSelectedDevice(deviceIds[0]);
+      }
+      
+      // Filter for selected device and sort by timestamp
+      const deviceHistory = processedEntries
+        .filter(entry => entry.deviceId === selectedDevice)
+        .sort((a, b) => a.timestamp - b.timestamp);
+      
+      // Get latest entry for selected device
+      const latestEntry = deviceHistory.length > 0 ? 
+        deviceHistory[deviceHistory.length - 1] : null;
+      
+      // Fetch anomalies from events
+      const anomalyEvents = await api.query.system.events((events) => {
+        return events
+          .filter(({ event }) => 
+            api.events.nrshTelemetry.AnomalyDetected.is(event))
+          .map(({ event }) => {
+            const [deviceId, anomalyType] = event.data;
+            return {
+              deviceId: Buffer.from(deviceId).toString(),
+              type: Buffer.from(anomalyType).toString(),
+              timestamp: Date.now() // Current time as approximation
+            };
+          })
+          .filter(anomaly => anomaly.deviceId === selectedDevice)
+          .slice(0, 10); // Most recent 10 anomalies
+      });
+      
+      // Update state with new data
+      setNrshData({
+        latest: latestEntry,
+        history: deviceHistory,
+        anomalies: anomalyEvents,
+        optimalRanges: {
+          ph: [optimalRanges[0][0].toNumber() / 100, optimalRanges[0][1].toNumber() / 100],
+          temperature: [optimalRanges[1][0].toNumber() / 100, optimalRanges[1][1].toNumber() / 100],
+          light: [optimalRanges[2][0].toNumber() / 10, optimalRanges[2][1].toNumber() / 10],
+          density: [optimalRanges[3][0].toNumber() / 1000, optimalRanges[3][1].toNumber() / 1000],
+          dissolvedOxygen: [optimalRanges[4][0].toNumber() / 100, optimalRanges[4][1].toNumber() / 100],
+          nitrate: [optimalRanges[5][0].toNumber() / 10, optimalRanges[5][1].toNumber() / 10],
+          salinity: [optimalRanges[6][0].toNumber() / 10, optimalRanges[6][1].toNumber() / 10]
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching NRSH data:', error);
+    }
+  };
+  
+  // Fetch ELXR data from parachain
+  const fetchElxrData = async (api) => {
+    try {
+      // Fetch optimal ranges
+      const optimalRanges = await api.query.elxrTelemetry.optimalRanges();
+      
+      // Fetch latest telemetry entries (most recent 20)
+      const telemetryEntries = await api.query.elxrTelemetry.kombuchaTelemetry.entries();
+      const processedEntries = telemetryEntries
+        .map(([key, value]) => {
+          const telemetryId = key.args[0].toNumber();
+          const telemetryData = value.unwrap();
+          
+          return {
+            id: telemetryId,
+            deviceId: Buffer.from(telemetryData.deviceId).toString(),
+            timestamp: telemetryData.timestamp.toNumber(),
+            ph: telemetryData.ph.toNumber() / 100, // Scale back to decimal
+            temperature: telemetryData.temperature.toNumber() / 100,
+            light: telemetryData.light.toNumber() / 10,
+            density: telemetryData.density.toNumber() / 1000,
+            co2: telemetryData.co2.toNumber() / 10,
+            fermentation: telemetryData.fermentation.toNumber() / 1000,
+            battery: telemetryData.battery.toNumber() / 10,
+            reporter: telemetryData.reporter.toString()
+          };
+        })
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 20);
+      
+      // Get unique device IDs
+      const deviceIds = [...new Set(processedEntries.map(entry => entry.deviceId))];
+      
+      // If no selected device, set first one
+      if (!selectedDevice && deviceIds.length > 0) {
+        setSelectedDevice(deviceIds[0]);
+      }
+      
+      // Filter for selected device and sort by timestamp
+      const deviceHistory = processedEntries
+        .filter(entry => entry.deviceId === selectedDevice)
+        .sort((a, b) => a.timestamp - b.timestamp);
+      
+      // Get latest entry for selected device
+      const latestEntry = deviceHistory.length > 0 ? 
+        deviceHistory[deviceHistory.length - 1] : null;
+      
+      // Fetch anomalies from events
+      const anomalyEvents = await api.query.system.events((events) => {
+        return events
+          .filter(({ event }) => 
+            api.events.elxrTelemetry.AnomalyDetected.is(event))
+          .map(({ event }) => {
+            const [deviceId, anomalyType] = event.data;
+            return {
+              deviceId: Buffer.from(deviceId).toString(),
+              type: Buffer.from(anomalyType).toString(),
+              timestamp: Date.now() // Current time as approximation
+            };
+          })
+          .filter(anomaly => anomaly.deviceId === selectedDevice)
+          .slice(0, 10); // Most recent 10 anomalies
+      });
+      
+      // Update state with new data
+      setElxrData({
+        latest: latestEntry,
+        history: deviceHistory,
+        anomalies: anomalyEvents,
+        optimalRanges: {
+          ph: [optimalRanges[0][0].toNumber() / 100, optimalRanges[0][1].toNumber() / 100],
+          temperature: [optimalRanges[1][0].toNumber() / 100, optimalRanges[1][1].toNumber() / 100],
+          light: [optimalRanges[2][0].toNumber() / 10, optimalRanges[2][1].toNumber() / 10],
+          density: [optimalRanges[3][0].toNumber() / 1000, optimalRanges[3][1].toNumber() / 1000],
+          co2: [optimalRanges[4][0].toNumber() / 10, optimalRanges[4][1].toNumber() / 10],
+          fermentation: [optimalRanges[5][0].toNumber() / 1000, optimalRanges[5][1].toNumber() / 1000]
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching ELXR data:', error);
+    }
+  };
+  
+  // Helper function to determine if a value is within optimal range
+  const getStatusForValue = (value, range) => {
+    if (!range) return { status: 'unknown', icon: null };
+    
+    if (value >= range[0] && value <= range[1]) {
+      return { 
+        status: 'optimal', 
+        icon: <ArrowUpCircle className="h-4 w-4 text-green-500" />,
+        color: 'text-green-500',
+        bgColor: 'bg-green-100'
+      };
+    } else if (value < range[0]) {
+      return { 
+        status: 'low', 
+        icon: <ArrowDownCircle className="h-4 w-4 text-amber-500" />,
+        color: 'text-amber-500',
+        bgColor: 'bg-amber-100'
+      };
+    } else {
+      return { 
+        status: 'high', 
+        icon: <AlertTriangle className="h-4 w-4 text-red-500" />,
+        color: 'text-red-500',
+        bgColor: 'bg-red-100'
+      };
+    }
+  };
+  
+  // Render gauge component for telemetry metrics
+  const renderGauge = (title, value, unit, range, icon) => {
+    if (!value || !range) return null;
+    
+    const status = getStatusForValue(value, range);
+    const min = Math.min(range[0] * 0.8, value * 0.8); // Make sure scale shows current value
+    const max = Math.max(range[1] * 1.2, value * 1.2); // Make sure scale shows current value
+    
+    const valuePercent = ((value - min) / (max - min)) * 100;
+    const lowPercent = ((range[0] - min) / (max - min)) * 100;
+    const highPercent = ((range[1] - min) / (max - min)) * 100;
+    
+    return (
+      <Card className="shadow-sm">
+        <CardHeader className="p-4 pb-2">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center space-x-2">
+              {icon}
+              <CardTitle className="text-sm font-medium">{title}</CardTitle>
+            </div>
+            <Badge className={`${status.bgColor} ${status.color}`}>
+              {status.icon}
+              <span className="ml-1">{status.status}</span>
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4 pt-0">
+          <div className="text-2xl font-semibold">{value.toFixed(2)} {unit}</div>
+          <div className="mt-2 relative h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+            {/* Optimal range highlight */}
+            <div 
+              className="absolute h-full bg-green-200 opacity-50"
+              style={{ 
+                left: `${lowPercent}%`, 
+                width: `${highPercent - lowPercent}%`
+              }}
+            />
+            {/* Current value indicator */}
+            <div 
+              className={`absolute h-full w-1 ${status.bgColor}`}
+              style={{ left: `${valuePercent}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-xs text-gray-500 mt-1">
+            <span>{min.toFixed(1)}</span>
+            <span>{max.toFixed(1)}</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+  
+  // Render a history chart for a specific metric
+  const renderHistoryChart = (metric, title, unit, range, data) => {
+    if (!data || data.length === 0) return null;
+    
+    const chartData = data.map(item => ({
+      timestamp: new Date(item.timestamp * 1000).toLocaleTimeString(),
+      value: item[metric]
+    }));
+    
+    return (
+      <Card className="shadow-sm">
+        <CardHeader className="p-4 pb-2">
+          <CardTitle className="text-sm font-medium">{title} History</CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-0">
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="timestamp" />
+              <YAxis domain={[
+                Math.min(range[0] * 0.8, Math.min(...chartData.map(d => d.value))),
+                Math.max(range[1] * 1.2, Math.max(...chartData.map(d => d.value)))
+              ]} />
+              <Tooltip />
+              <Line type="monotone" dataKey="value" stroke="#3b82f6" name={`${title} (${unit})`} />
+              {/* Optimal range reference lines */}
+              <CartesianGrid strokeDasharray="5 5" />
+              <ReferenceLine y={range[0]} stroke="rgba(34, 197, 94, 0.5)" strokeDasharray="3 3" />
+              <ReferenceLine y={range[1]} stroke="rgba(34, 197, 94, 0.5)" strokeDasharray="3 3" />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+    );
+  };
+  
+  // Render NRSH (Spirulina) dashboard
+  const renderNrshDashboard = () => {
+    const { latest, history, optimalRanges } = nrshData;
+    
+    if (!latest || !optimalRanges) {
+      return (
+        <div className="flex justify-center items-center h-64">
+          <p>Loading spirulina telemetry data...</p>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold">Spirulina Cultivation Dashboard</h2>
+          <Badge variant="outline" className="flex items-center">
+            <Battery className="h-4 w-4 mr-1" />
+            Battery: {latest.battery}%
+          </Badge>
+        </div>
+        
+        {/* Device info */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <div className="text-sm font-medium text-gray-500">Device ID</div>
+                <div className="font-medium">{latest.deviceId}</div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-500">Batch ID</div>
+                <div className="font-medium">{latest.batchId}</div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-500">Health Score</div>
+                <div className="font-medium">{latest.overallHealth}%</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        {/* Current readings */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {renderGauge('pH Level', latest.ph, '', optimalRanges.ph, <Droplet className="h-4 w-4" />)}
+          {renderGauge('Temperature', latest.temperature, '°C', optimalRanges.temperature, <Thermometer className="h-4 w-4" />)}
+          {renderGauge('Light', latest.light, 'lux', optimalRanges.light, <Sun className="h-4 w-4" />)}
+          {renderGauge('Density', latest.density, 'g/L', optimalRanges.density, <Gauge className="h-4 w-4" />)}
+          {renderGauge('Dissolved O₂', latest.dissolvedOxygen, 'mg/L', optimalRanges.dissolvedOxygen, <Droplet className="h-4 w-4" />)}
+          {renderGauge('Nitrate', latest.nitrate, 'mg/L', optimalRanges.nitrate, <Flask className="h-4 w-4" />)}
+          {renderGauge('Salinity', latest.salinity, 'g/L', optimalRanges.salinity, <Droplet className="h-4 w-4" />)}
+        </div>
+        
+        {/* Harvest status */}
+        {latest.harvestReady && (
+          <Alert className="bg-green-100 border-green-500">
+            <AlertTitle className="text-green-800">Harvest Ready</AlertTitle>
+            <AlertDescription className="text-green-700">
+              This batch of spirulina has reached optimal density for harvesting.
+            </AlertDescription>
+          </Alert>
+        )}
+        
+        {/* Charts */}
+        <h3 className="text-lg font-semibold mt-6">Historical Data</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {renderHistoryChart('ph', 'pH Level', '', optimalRanges.ph, history)}
+          {renderHistoryChart('temperature', 'Temperature', '°C', optimalRanges.temperature, history)}
+          {renderHistoryChart('density', 'Density', 'g/L', optimalRanges.density, history)}
+          {renderHistoryChart('dissolvedOxygen', 'Dissolved O₂', 'mg/L', optimalRanges.dissolvedOxygen, history)}
+        </div>
+        
+        {/* Anomalies */}
+        {nrshData.anomalies.length > 0 && (
+          <>
+            <h3 className="text-lg font-semibold mt-6">Recent Anomalies</h3>
+            <div className="space-y-2">
+              {nrshData.anomalies.map((anomaly, index) => (
+                <Alert key={index} className="bg-amber-50 border-amber-200">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  <AlertTitle className="text-amber-800">{anomaly.type.replace('_', ' ')}</AlertTitle>
+                  <AlertDescription className="text-amber-700">
+                    Detected at {new Date(anomaly.timestamp).toLocaleTimeString()}
+                  </AlertDescription>
+                </Alert>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+  
+  // Render ELXR (Kombucha) dashboard
+  const renderElxrDashboard = () => {
+    const { latest, history, optimalRanges } = elxrData;
+    
+    if (!latest || !optimalRanges) {
+      return (
+        <div className="flex justify-center items-center h-64">
+          <p>Loading kombucha telemetry data...</p>
+        </div>
+      );
+    }
+    
+    // Calculate fermentation progress
+    const fermentationProgress = Math.min(100, (latest.fermentation / optimalRanges.fermentation[1]) * 100);
+    
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-bold">Kombucha Fermentation Dashboard</h2>
+          <Badge variant="outline" className="flex items-center">
+            <Battery className="h-4 w-4 mr-1" />
+            Battery: {latest.battery}%
+          </Badge>
+        </div>
+        
+        {/* Device info */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-sm font-medium text-gray-500">Device ID</div>
+                <div className="font-medium">{latest.deviceId}</div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-500">Fermentation Progress</div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                  <div 
+                    className="bg-blue-600 h-2.5 rounded-full" 
+                    style={{ width: `${fermentationProgress}%` }}
+                  ></div>
+                </div>
+                <div className="text-sm mt-1">{fermentationProgress.toFixed(1)}% complete</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        {/* Current readings */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {renderGauge('pH Level', latest.ph, '', optimalRanges.ph, <Droplet className="h-4 w-4" />)}
+          {renderGauge('Temperature', latest.temperature, '°C', optimalRanges.temperature, <Thermometer className="h-4 w-4" />)}
+          {renderGauge('Light', latest.light, 'lux', optimalRanges.light, <Sun className="h-4 w-4" />)}
+          {renderGauge('Density', latest.density, 'SG', optimalRanges.density, <Gauge className="h-4 w-4" />)}
+          {renderGauge('CO₂ Level', latest.co2, 'ppm', optimalRanges.co2, <Flask className="h-4 w-4" />)}
+          {renderGauge('Fermentation', latest.fermentation, '', optimalRanges.fermentation, <Flask className="h-4 w-4" />)}
+        </div>
+        
+        {/* Fermentation status */}
+        {latest.fermentation >= optimalRanges.fermentation[1] * 0.9 && (
+          <Alert className="bg-green-100 border-green-500">
+            <AlertTitle className="text-green-800">Fermentation Nearly Complete</AlertTitle>
+            <AlertDescription className="text-green-700">
+              This batch of kombucha is nearing completion of the primary fermentation stage.
+            </AlertDescription>
+          </Alert>
+        )}
+        
+        {/* Charts */}
+        <h3 className="text-lg font-semibold mt-6">Historical Data</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {renderHistoryChart('ph', 'pH Level', '', optimalRanges.ph, history)}
+          {renderHistoryChart('temperature', 'Temperature', '°C', optimalRanges.temperature, history)}
+          {renderHistoryChart('co2', 'CO₂ Level', 'ppm', optimalRanges.co2, history)}
+          {renderHistoryChart('fermentation', 'Fermentation', '', optimalRanges.fermentation, history)}
+        </div>
+        
+        {/* Anomalies */}
+        {elxrData.anomalies.length > 0 && (
+          <>
+            <h3 className="text-lg font-semibold mt-6">Recent Anomalies</h3>
+            <div className="space-y-2">
+              {elxrData.anomalies.map((anomaly, index) => (
+                <Alert key={index} className="bg-amber-50 border-amber-200">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  <AlertTitle className="text-amber-800">{anomaly.type.replace('_', ' ')}</AlertTitle>
+                  <AlertDescription className="text-amber-700">
+                

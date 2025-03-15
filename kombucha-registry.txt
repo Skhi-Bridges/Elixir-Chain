@@ -1,0 +1,335 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+use ink_lang as ink;
+
+#[ink::contract]
+mod kombucha_registry {
+    use ink_prelude::string::String;
+    use ink_prelude::vec::Vec;
+    use ink_storage::{
+        collections::HashMap as StorageHashMap,
+        traits::{PackedLayout, SpreadLayout},
+    };
+    use scale::{Decode, Encode};
+
+    /// Represents a registered kombucha production facility
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct ProductionFacility {
+        /// Unique ID for the facility
+        id: String,
+        /// Public name of the facility
+        name: String,
+        /// Geographic coordinates
+        location: (i32, i32),
+        /// Production capacity in liters per month
+        capacity: u32,
+        /// Certifications held by the facility
+        certifications: Vec<Certification>,
+        /// Status of the facility
+        status: FacilityStatus,
+        /// Owner account
+        owner: AccountId,
+        /// Timestamp of registration
+        registered_at: Timestamp,
+        /// Latest audit timestamp
+        last_audit: Timestamp,
+    }
+
+    /// Certification information
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct Certification {
+        /// Type of certification
+        cert_type: CertificationType,
+        /// Identification number
+        cert_id: String,
+        /// Issuing authority
+        issuer: String,
+        /// Expiration timestamp
+        valid_until: Timestamp,
+    }
+
+    /// Types of certifications
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum CertificationType {
+        Organic,
+        FDA,
+        GMP,
+        HACCP,
+        ISO22000,
+        Vegan,
+        Kosher,
+        Halal,
+        Other,
+    }
+
+    /// Status of facility registration
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout, PartialEq)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum FacilityStatus {
+        Pending,
+        Active,
+        Suspended,
+        Revoked,
+    }
+
+    /// SCOBY lineage record
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct ScobyCulture {
+        /// Unique ID for the SCOBY
+        id: String,
+        /// Name or strain identifier
+        name: String,
+        /// Parent SCOBY IDs
+        parent_ids: Vec<String>,
+        /// Facility that owns this SCOBY
+        facility_id: String,
+        /// Origin description
+        origin: String,
+        /// Generation number
+        generation: u32,
+        /// Registration timestamp
+        registered_at: Timestamp,
+        /// Characteristics of this SCOBY
+        characteristics: ScobyCultureCharacteristics,
+    }
+
+    /// SCOBY culture characteristics
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct ScobyCultureCharacteristics {
+        /// Acidity production (1-10 scale)
+        acidity: u8,
+        /// Fermentation speed (1-10 scale)
+        fermentation_speed: u8,
+        /// Flavor profile descriptors
+        flavor_notes: Vec<String>,
+        /// Thickness (mm, scaled by 10)
+        thickness: u16,
+        /// Average fermentation time in days
+        avg_fermentation_days: u8,
+    }
+
+    /// Represents an authorized telemetry device
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct TelemetryDevice {
+        /// Unique device identifier
+        device_id: String,
+        /// Facility ID associated with the device
+        facility_id: String,
+        /// Public key for quantum-resistant authentication
+        public_key: Vec<u8>,
+        /// Status of the device
+        status: DeviceStatus,
+        /// Registration timestamp
+        registered_at: Timestamp,
+        /// Latest activity timestamp
+        last_active: Timestamp,
+        /// Device firmware version
+        firmware_version: String,
+    }
+
+    /// Status of a telemetry device
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout, PartialEq)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum DeviceStatus {
+        Authorized,
+        Suspended,
+        Revoked,
+    }
+
+    /// Kombucha recipe record
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct Recipe {
+        /// Unique recipe ID
+        id: String,
+        /// Recipe name
+        name: String,
+        /// Facility that owns this recipe
+        facility_id: String,
+        /// SCOBY culture used
+        scoby_id: String,
+        /// Base tea ingredients
+        base_ingredients: Vec<Ingredient>,
+        /// Flavoring ingredients (secondary fermentation)
+        flavor_ingredients: Vec<Ingredient>,
+        /// Fermentation parameters
+        fermentation_params: FermentationParameters,
+        /// Registration timestamp
+        registered_at: Timestamp,
+        /// Last modified timestamp
+        last_modified: Timestamp,
+    }
+
+    /// Ingredient record
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct Ingredient {
+        /// Ingredient name
+        name: String,
+        /// Ingredient type
+        ing_type: IngredientType,
+        /// Origin or source
+        source: String,
+        /// Is this ingredient organic?
+        is_organic: bool,
+        /// Proportion in recipe (parts per thousand)
+        proportion: u16,
+    }
+
+    /// Ingredient types
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum IngredientType {
+        Tea,
+        Sweetener,
+        Fruit,
+        Herb,
+        Spice,
+        Juice,
+        Other,
+    }
+
+    /// Fermentation parameters
+    #[derive(Debug, Encode, Decode, Clone, SpreadLayout, PackedLayout)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub struct FermentationParameters {
+        /// First fermentation days
+        primary_days: u8,
+        /// Second fermentation days
+        secondary_days: u8,
+        /// Optimal pH range (scaled by 100)
+        ph_range: (u32, u32),
+        /// Optimal temperature range in Celsius (scaled by 100)
+        temp_range: (u32, u32),
+        /// Optimal starting density (specific gravity, scaled by 1000)
+        initial_density: u32,
+    }
+
+    /// Simple timestamp type (Unix timestamp)
+    pub type Timestamp = u64;
+
+    #[ink(storage)]
+    pub struct KombuchaRegistry {
+        /// Contract owner
+        owner: AccountId,
+        /// Map of registered production facilities
+        facilities: StorageHashMap<String, ProductionFacility>,
+        /// Map of SCOBY cultures
+        scoby_cultures: StorageHashMap<String, ScobyCulture>,
+        /// Map of authorized telemetry devices
+        devices: StorageHashMap<String, TelemetryDevice>,
+        /// Map of kombucha recipes
+        recipes: StorageHashMap<String, Recipe>,
+        /// Map of authorized auditors
+        auditors: StorageHashMap<AccountId, bool>,
+        /// Map of facility IDs by owner
+        facilities_by_owner: StorageHashMap<AccountId, Vec<String>>,
+        /// Map of SCOBY IDs by facility
+        scobys_by_facility: StorageHashMap<String, Vec<String>>,
+        /// Map of recipe IDs by facility
+        recipes_by_facility: StorageHashMap<String, Vec<String>>,
+        /// Total number of registered facilities
+        facilities_count: u32,
+        /// Total number of registered SCOBYs
+        scoby_count: u32,
+        /// Total number of registered recipes
+        recipe_count: u32,
+        /// Total number of authorized devices
+        devices_count: u32,
+    }
+
+    /// Errors that can occur in the registry
+    #[derive(Debug, Encode, Decode, PartialEq)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum Error {
+        /// Caller is not authorized
+        Unauthorized,
+        /// Facility ID already exists
+        FacilityAlreadyExists,
+        /// Facility ID does not exist
+        FacilityNotFound,
+        /// SCOBY ID already exists
+        ScobyAlreadyExists,
+        /// SCOBY ID does not exist
+        ScobyNotFound,
+        /// Recipe ID already exists
+        RecipeAlreadyExists,
+        /// Recipe ID does not exist
+        RecipeNotFound,
+        /// Device ID already exists
+        DeviceAlreadyExists,
+        /// Device ID does not exist
+        DeviceNotFound,
+        /// Invalid parameters
+        InvalidParameters,
+        /// Facility is not active
+        FacilityNotActive,
+        /// Device is not authorized
+        DeviceNotAuthorized,
+        /// Certification has expired
+        CertificationExpired,
+    }
+
+    /// Events emitted by the contract
+    #[ink(event)]
+    pub struct FacilityRegistered {
+        #[ink(topic)]
+        facility_id: String,
+        owner: AccountId,
+    }
+
+    #[ink(event)]
+    pub struct FacilityStatusChanged {
+        #[ink(topic)]
+        facility_id: String,
+        new_status: FacilityStatus,
+    }
+
+    #[ink(event)]
+    pub struct ScobyRegistered {
+        #[ink(topic)]
+        scoby_id: String,
+        #[ink(topic)]
+        facility_id: String,
+    }
+
+    #[ink(event)]
+    pub struct RecipeRegistered {
+        #[ink(topic)]
+        recipe_id: String,
+        #[ink(topic)]
+        facility_id: String,
+    }
+
+    #[ink(event)]
+    pub struct DeviceAuthorized {
+        #[ink(topic)]
+        device_id: String,
+        #[ink(topic)]
+        facility_id: String,
+    }
+
+    pub type Result<T> = core::result::Result<T, Error>;
+
+    impl KombuchaRegistry {
+        /// Creates a new registry with the caller as owner
+        #[ink(constructor)]
+        pub fn new() -> Self {
+            Self {
+                owner: Self::env().caller(),
+                facilities: StorageHashMap::new(),
+                scoby_cultures: StorageHashMap::new(),
+                devices: StorageHashMap::new(),
+                recipes: StorageHashMap::new(),
+                auditors: StorageHashMap::new(),
+                facilities_by_owner: StorageHashMap::new(),
+                scobys_by_facility: StorageHashMap::new(),
+                recipes_by_facility: StorageHashMap::new(),
+                facilities_count: 0,
+                sco

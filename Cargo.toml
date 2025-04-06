@@ -145,5 +145,4 @@ path = "src/lib.rs"
 name = "elxr-node"
 path = "src/main.rs"
 
-[profile.release]
-panic = "unwind"
+# Removed profile section - now using workspace profiles

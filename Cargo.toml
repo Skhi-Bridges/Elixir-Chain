@@ -1,16 +1,149 @@
-[workspace]
-members = [
-    "node",
-    "runtime",
-    "src/pallet",
-    "telemetry",
+[package]
+name = "matrix-magiq-elxr"
+version = "0.1.0"
+edition = "2021"
+authors = ["Matrix-Magiq Team"]
+license = "MIT OR Apache-2.0"
+description = "ELXR Chain for the Matrix-Magiq ecosystem"
+build = "build.rs"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+# Core dependencies
+log = "0.4.21"
+hex-literal = "0.3.4"
+serde = { version = "1.0.195", features = ["derive"], optional = true }
+parking_lot = "0.12.1"
+rand = "0.8.5"
+rand_chacha = "0.3.1"
+getrandom = { version = "0.2.12", features = ["js"] }
+
+# Substrate core dependencies
+sp-core = "7.0.0"
+sp-runtime = "7.0.0"
+sp-api = "4.0.0-dev"
+sp-block-builder = "4.0.0-dev"
+sp-consensus-aura = "0.10.0-dev"
+sp-inherents = "4.0.0-dev"
+sp-io = "7.0.0"
+sp-offchain = "4.0.0-dev"
+sp-session = "4.0.0-dev"
+sp-std = "5.0.0"
+sp-trie = "7.0.0"
+sp-version = "5.0.0"
+frame-support = "4.0.0"
+frame-system = "4.0.0"
+pallet-aura = "4.0.0"
+pallet-balances = "4.0.0"
+pallet-grandpa = "4.0.0"
+pallet-sudo = "4.0.0"
+pallet-timestamp = "4.0.0"
+pallet-transaction-payment = "4.0.0"
+
+# Cumulus parachain dependencies
+cumulus-pallet-parachain-system = { version = "0.1.0", default-features = false, git = "https://github.com/paritytech/cumulus.git", tag = "v1.0.0" }
+cumulus-primitives-core = { version = "0.1.0", default-features = false, git = "https://github.com/paritytech/cumulus.git", tag = "v1.0.0" }
+parachain-info = { version = "0.1.0", default-features = false, git = "https://github.com/paritytech/cumulus.git", tag = "v1.0.0" }
+
+# Optional dependencies for node functionality
+cumulus-client-cli = { version = "0.1.0", optional = true, git = "https://github.com/paritytech/cumulus.git", tag = "v1.0.0" }
+cumulus-client-consensus-relay-chain = { version = "0.1.0", optional = true, git = "https://github.com/paritytech/cumulus.git", tag = "v1.0.0" }
+cumulus-client-service = { version = "0.1.0", optional = true, git = "https://github.com/paritytech/cumulus.git", tag = "v1.0.0" }
+cumulus-relay-chain-interface = { version = "0.1.0", optional = true, git = "https://github.com/paritytech/cumulus.git", tag = "v1.0.0" }
+frame-benchmarking-cli = { version = "4.0.0-dev", optional = true }
+sc-cli = { version = "0.10.0-dev", optional = true }
+sc-client-api = { version = "4.0.0-dev", optional = true }
+sc-consensus = { version = "0.10.0-dev", optional = true }
+sc-executor = { version = "0.10.0-dev", optional = true }
+sc-network = { version = "0.10.0-dev", optional = true }
+sc-rpc = { version = "4.0.0-dev", optional = true }
+sc-service = { version = "0.10.0-dev", optional = true }
+sc-telemetry = { version = "4.0.0-dev", optional = true }
+sc-transaction-pool = { version = "4.0.0-dev", optional = true }
+substrate-frame-rpc-system = { version = "4.0.0-dev", optional = true }
+pallet-transaction-payment-rpc = { version = "4.0.0-dev", optional = true }
+
+# Local dependencies
+matrix-magiq-common = { path = "../common" }
+matrix-magiq-quantum = { path = "../quantum", default-features = false }
+
+# Post-quantum cryptography
+pqc_kyber = "0.7.1"
+pqc_dilithium = "0.2.0"
+blake3 = "1.3.3"
+
+# Quantum-resistant cryptography
+num-complex = "0.4.3"
+ndarray = "0.15.6"
+
+[build-dependencies]
+substrate-build-script-utils = "3.0.0"
+
+[features]
+default = ["std"]
+std = [
+    "matrix-magiq-quantum/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-balances/std",
+    "pallet-aura/std",
+    "pallet-grandpa/std",
+    "pallet-timestamp/std",
+    "pallet-sudo/std",
+    "pallet-transaction-payment/std",
+    "sp-core/std",
+    "sp-runtime/std",
+    "sp-io/std",
+    "sp-std/std",
+    "sp-version/std",
+    "sp-trie/std",
+    "sp-api/std",
+    "sp-consensus-aura/std",
+    "sp-block-builder/std",
+    "sp-inherents/std",
+    "sp-session/std",
+    "sp-offchain/std",
+    "cumulus-pallet-parachain-system/std",
+    "cumulus-primitives-core/std",
+    "parachain-info/std",
+    "log/std",
+    "sc-cli",
+    "sc-service",
+    "sc-executor",
+    "sc-telemetry",
+    "sc-transaction-pool",
+    "sc-consensus",
+    "cumulus-client-cli",
+    "cumulus-client-consensus-relay-chain",
+    "cumulus-client-service",
+    "cumulus-relay-chain-interface",
+    "frame-benchmarking-cli",
 ]
+no-cern = []
+thrice-nested = []
+stereo-entropy = []
+iron-nickel-cobalt = []
+maximum-security = [
+    "matrix-magiq-quantum/maximum-security"
+]
+runtime-benchmarks = [
+    "frame-benchmarking-cli/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "pallet-grandpa/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
+    "cumulus-pallet-parachain-system/runtime-benchmarks",
+]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "elxr-node"
+path = "src/main.rs"
 
 [profile.release]
 panic = "unwind"
-opt-level = 3
-
-[profile.production]
-inherits = "release"
-lto = true
-codegen-units = 1

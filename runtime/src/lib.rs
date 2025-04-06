@@ -42,6 +42,8 @@ pub use sp_runtime::{Perbill, Permill};
 
 // Import ELXR pallet
 pub use elixir_pallet;
+// Import Quantum Security pallet
+pub use pallet_quantum_security;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -277,6 +279,18 @@ impl elixir_pallet::Config for Runtime {
     type WeightInfo = ();
 }
 
+// Configure the Quantum Security pallet
+parameter_types! {
+    pub const InitialStereoMode: pallet_quantum_security::StereoModeType = pallet_quantum_security::StereoModeType::Dynamic;
+    pub const InitialSecurityStrength: pallet_quantum_security::SecurityStrengthType = pallet_quantum_security::SecurityStrengthType::Maximum;
+}
+
+impl pallet_quantum_security::Config for Runtime {
+    type Event = Event;
+    type SecurityStrength = InitialSecurityStrength;
+    type StereoMode = InitialStereoMode;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime where
@@ -293,6 +307,7 @@ construct_runtime!(
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
         ElixirModule: elixir_pallet,
+        QuantumSecurity: pallet_quantum_security,
     }
 );
 

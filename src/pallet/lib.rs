@@ -15,6 +15,10 @@ use sp_std::prelude::*;
 mod types;
 pub use types::*;
 
+// Import oracle and oracle-liquidity integration modules
+pub mod oracle;
+pub mod oracle_liquidity;
+
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -45,6 +49,12 @@ pub trait Config: frame_system::Config {
 
     /// The maximum number of verifiers per batch.
     type MaxVerifiers: Get<u32>;
+
+    /// The oracle pallet configuration
+    type OracleConfig: oracle::Config;
+
+    /// The oracle-liquidity integration configuration
+    type OracleLiquidityConfig: oracle_liquidity::Config;
 
     /// Weight information for extrinsics in this pallet.
     type WeightInfo: WeightInfo;
